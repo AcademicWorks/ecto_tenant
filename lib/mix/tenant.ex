@@ -6,6 +6,8 @@ defmodule Mix.Tenant do
   If no repo option is given, it is retrieved from the application environment.
   """
   @spec parse_repo([term]) :: [Ecto.Repo.t]
+  @ecto_tenant_repos_key :ecto_tenant_repos
+
   def parse_repo(args) do
     parse_repo(args, [])
   end
@@ -29,7 +31,7 @@ defmodule Mix.Tenant do
     apps
     |> Enum.flat_map(fn app ->
       Application.load(app)
-      Application.get_env(app, :tenant_repos, [])
+      Application.get_env(app, @ecto_tenant_repos_key, [])
     end)
     |> Enum.uniq()
     |> case do
