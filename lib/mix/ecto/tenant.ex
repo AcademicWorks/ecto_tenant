@@ -87,4 +87,35 @@ defmodule Mix.Ecto.Tenant do
     end
   end
 
+  def migration_sources(paths) do
+    Enum.flat_map(paths, fn path ->
+      Path.wildcard("#{path}/*.exs")
+      |> Enum.map(fn path ->
+        [version | _] = Path.basename(path)
+        |> String.split("_", parts: 2)
+
+        version = case Integer.parse(version) do
+          {version, ""} -> version
+          _error -> "file #{Path.relative_to_cwd(path)} does not have an integer version"
+        end
+
+        mod = path
+        |> Code.compile_file()
+        |> Enum.map(&elem(&1, 0))
+        |> Enum.find(&migration?/1)
+
+        if mod do
+          {version, mod}
+        else
+          raise Ecto.MigrationError,
+            "file #{Path.relative_to_cwd(path)} does not define an Ecto.Migration"
+        end
+      end)
+    end)
+  end
+
+  defp migration?(mod) do
+    Code.ensure_loaded?(mod) and function_exported?(mod, :__migration__, 0)
+  end
+
 end

@@ -1,13 +1,13 @@
-defmodule Mix.Tasks.Ecto.Tenant.Migrate do
+defmodule Mix.Tasks.Ecto.Tenant.Rollback do
   use Mix.Task
   import Mix.Ecto
   import Mix.EctoSQL
 
-  @shortdoc "Runs the repository migrations"
+  @shortdoc "Rolls back the repository migrations"
 
   @aliases [
-    n: :step,
-    r: :repo
+    r: :repo,
+    n: :step
   ]
 
   @switches [
@@ -16,12 +16,11 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     to: :integer,
     to_exclusive: :integer,
     quiet: :boolean,
-    tenant: :string,
+    prefix: :string,
     pool_size: :integer,
     log_level: :string,
     log_migrations_sql: :boolean,
     log_migrator_sql: :boolean,
-    strict_version_order: :boolean,
     repo: [:keep, :string],
     no_compile: :boolean,
     no_deps_check: :boolean,
@@ -29,7 +28,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
   ]
 
   @moduledoc """
-  Runs the pending migrations for the given repository.
+  Reverts applied migrations in the given repository.
 
   Migrations are expected at "priv/YOUR_REPO/migrations" directory
   of the current application, where "YOUR_REPO" is the last segment
@@ -44,30 +43,27 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
 
       config :my_app, MyApp.Repo, priv: "priv/custom_repo"
 
-  This task runs all pending migrations by default. To migrate up to a
-  specific version number, supply `--to version_number`. To migrate a
-  specific number of times, use `--step n`.
+  This task rolls back the last applied migration by default. To roll
+  back to a version number, supply `--to version_number`. To roll
+  back a specific number of times, use `--step n`. To undo all applied
+  migrations, provide `--all`.
 
-  The repositories to migrate are the ones specified under the
+  The repositories to rollback are the ones specified under the
   `:ecto_repos` option in the current app configuration. However,
   if the `-r` option is given, it replaces the `:ecto_repos` config.
-
-  Since Ecto tasks can only be executed once, if you need to migrate
-  multiple repositories, set `:ecto_repos` accordingly or pass the `-r`
-  flag multiple times.
 
   If a repository has not yet been started, one will be started outside
   your application supervision tree and shutdown afterwards.
 
   ## Examples
 
-      $ mix ecto.migrate
-      $ mix ecto.migrate -r Custom.Repo
+      $ mix ecto.rollback
+      $ mix ecto.rollback -r Custom.Repo
 
-      $ mix ecto.migrate -n 3
-      $ mix ecto.migrate --step 3
+      $ mix ecto.rollback -n 3
+      $ mix ecto.rollback --step 3
 
-      $ mix ecto.migrate --to 20080906120000
+      $ mix ecto.rollback --to 20080906120000
 
   ## Command line options
 
@@ -96,20 +92,20 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     * `--pool-size` - the pool size if the repository is started
       only for the task (defaults to 2)
 
-    * `--tenant` - the tenant to run migrations on
+    * `--prefix` - the prefix to run migrations on
 
     * `--quiet` - do not log migration commands
 
     * `-r`, `--repo` - the repo to migrate
 
-    * `--step`, `-n` - run n number of pending migrations
+    * `--step`, `-n` - revert n migrations
 
     * `--strict-version-order` - abort when applying a migration with old
       timestamp (otherwise it emits a warning)
 
-    * `--to` - run all migrations up to and including version
+    * `--to` - revert all migrations down to and including version
 
-    * `--to-exclusive` - run all migrations up to and excluding version
+    * `--to-exclusive` - revert all migrations down to and excluding version
 
   """
 
@@ -121,7 +117,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     opts =
       if opts[:to] || opts[:to_exclusive] || opts[:step] || opts[:all],
         do: opts,
-        else: Keyword.put(opts, :all, true)
+        else: Keyword.put(opts, :step, 1)
 
     opts =
       if opts[:quiet],
@@ -139,23 +135,21 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     for repo <- repos do
       ensure_repo(repo, args)
       paths = ensure_migrations_paths(repo, opts)
-      sources = Mix.Ecto.Tenant.migration_sources(paths)
       pool = repo.config()[:pool]
 
       for tenant <- repo.tenants() do
         dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
-
         opts = Keyword.put(opts, :dynamic_repo, dyn_repo)
         |> Keyword.put(:prefix, tenant[:prefix])
 
-        f =
+        fun =
           if Code.ensure_loaded?(pool) and function_exported?(pool, :unboxed_run, 2) do
-            &pool.unboxed_run(&1, fn -> migrator.(&1, sources, :up, opts) end)
+            &pool.unboxed_run(&1, fn -> migrator.(&1, paths, :down, opts) end)
           else
-            &migrator.(&1, sources, :up, opts)
+            &migrator.(&1, paths, :down, opts)
           end
 
-        case Mix.Ecto.Tenant.with_repo(repo, tenant, f) do
+        case Mix.Ecto.Tenant.with_repo(repo, tenant, fun) do
           {:ok, _migrated, _apps} ->
             :ok
 
@@ -168,5 +162,4 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
 
     :ok
   end
-
 end
