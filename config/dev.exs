@@ -7,6 +7,7 @@ config :ecto_tenant, Repo,
   port: 5432,
   username: "postgres",
   tenants: [
+    # [name: :dev, prefix: "client_dev"],
     [name: :foo, prefix: "client_foo", repo: :one],
     [name: :bar, prefix: "client_bar", repo: :two]
   ],

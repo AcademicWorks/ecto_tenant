@@ -24,9 +24,16 @@ defmodule Ecto.Tenant do
 
       def repo_config(name) do
         base_config = Application.get_env(@otp_app, __MODULE__, [])
-        config = Enum.find(repos(), & &1[:name] == name)
-        Keyword.merge(base_config, config)
-        |> Keyword.drop([:tenants, :repos])
+
+        config = if name == __MODULE__ do
+          base_config
+        else
+          config = Enum.find(repos(), & &1[:name] == name) ||
+            raise ArgumentError, "repo #{inspect name} not found"
+          Keyword.merge(base_config, config)
+        end
+
+        Keyword.drop(config, [:tenants, :repos])
       end
 
     end

@@ -5,7 +5,7 @@ defmodule EctoTenant.MixProject do
     [
       app: :ecto_tenant,
       version: "0.1.0",
-      elixir: "~> 1.17",
+      elixir: "~> 1.16 or ~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env)

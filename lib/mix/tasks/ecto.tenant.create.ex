@@ -20,17 +20,18 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
   def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
 
-    Mix.Tenant.parse_repo(args)
+    Mix.Ecto.Tenant.parse_repo(args)
     |> Enum.each(fn repo ->
       Enum.reduce(repo.tenants(), MapSet.new(), fn tenant, seen ->
-        dyn_repo = tenant[:repo] || repo
+        dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
 
         if dyn_repo not in seen do
           create_repo(repo, dyn_repo, args, opts)
-          start_repo(repo, dyn_repo)
         end
 
-        create_tenant(repo, tenant, opts)
+        Mix.Ecto.Tenant.with_repo(repo, tenant, fn _->
+          create_tenant(repo, dyn_repo, tenant, opts)
+        end)
 
         MapSet.put(seen, dyn_repo)
       end)
@@ -40,7 +41,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
   defp create_repo(repo, dyn_repo, args, opts) do
     import Mix.Ecto
 
-    repo.put_dynamic_repo(dyn_repo)
+    config = repo.repo_config(dyn_repo)
 
     ensure_repo(repo, args)
 
@@ -50,50 +51,47 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
       "create storage for #{inspect(repo)}"
     )
 
-    case repo.__adapter__().storage_up(repo.config()) do
+    repo_name = Mix.Ecto.Tenant.repo_display_name(repo, dyn_repo)
+
+    case repo.__adapter__().storage_up(config) do
       :ok ->
         unless opts[:quiet] do
-          Mix.shell().info("The database for #{inspect(repo)} has been created")
+          Mix.shell().info("The database for #{repo_name} has been created")
         end
 
       {:error, :already_up} ->
         unless opts[:quiet] do
-          Mix.shell().info("The database for #{inspect(repo)} has already been created")
+          Mix.shell().info("The database for #{repo_name} has already been created")
         end
 
       {:error, term} when is_binary(term) ->
-        Mix.raise("The database for #{inspect(repo)} couldn't be created: #{term}")
+        Mix.raise("The database for #{repo_name} couldn't be created: #{term}")
 
       {:error, term} ->
-        Mix.raise("The database for #{inspect(repo)} couldn't be created: #{inspect(term)}")
+        Mix.raise("The database for #{repo_name} couldn't be created: #{inspect(term)}")
     end
   end
 
-  defp create_tenant(repo, tenant, opts) do
+  defp create_tenant(_repo, dyn_repo, tenant, opts) do
     sql = "CREATE SCHEMA IF NOT EXISTS #{tenant[:prefix]}"
+    result = Ecto.Adapters.SQL.query!(dyn_repo, sql, [], log: false)
 
-    result = repo.get_dynamic_repo()
-    |> Ecto.Adapters.SQL.query!(sql, [], log: false)
+    tenant_name = Mix.Ecto.Tenant.tenant_display_name(tenant)
 
     case result.messages do
       [] ->
         unless opts[:quiet] do
-          Mix.shell().info("Schema #{inspect(tenant[:prefix])} has been created")
+          Mix.shell().info("#{tenant_name} has been created")
         end
 
       [%{code: "42P06"}] ->
         unless opts[:quiet] do
-          Mix.shell().info("Schema #{inspect(tenant[:prefix])} has already been created")
+          Mix.shell().info("#{tenant_name} has already been created")
         end
 
       [%{message: message}] ->
-        Mix.raise("Schema #{inspect(tenant[:prefix])} couldn't be created: #{message}")
+        Mix.raise("#{tenant_name} couldn't be created: #{message}")
     end
-  end
-
-  def start_repo(repo, dyn_repo) do
-    Enum.find(repo.repos(), & &1[:name] == dyn_repo)
-    |> repo.start_link()
   end
 
 end

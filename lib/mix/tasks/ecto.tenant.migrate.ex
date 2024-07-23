@@ -115,7 +115,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
 
   @impl true
   def run(args, migrator \\ &Ecto.Migrator.run/4) do
-    repos = parse_repo(args)
+    repos = Mix.Ecto.Tenant.parse_repo(args)
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
 
     opts =
@@ -142,20 +142,19 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
       pool = repo.config()[:pool]
 
       for tenant <- repo.tenants() do
-        dyn_repo = tenant[:repo] || repo
-        repo.start_tenant_repo(dyn_repo)
+        dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
 
         opts = Keyword.put(opts, :dynamic_repo, dyn_repo)
         |> Keyword.put(:prefix, tenant[:prefix])
 
-        fun =
+        f =
           if Code.ensure_loaded?(pool) and function_exported?(pool, :unboxed_run, 2) do
             &pool.unboxed_run(&1, fn -> migrator.(&1, paths, :up, opts) end)
           else
             &migrator.(&1, paths, :up, opts)
           end
 
-        case Ecto.Migrator.with_repo(repo, fun, [mode: :temporary] ++ opts) do
+        case Mix.Ecto.Tenant.with_repo(repo, tenant, f) do
           {:ok, _migrated, _apps} ->
             :ok
 

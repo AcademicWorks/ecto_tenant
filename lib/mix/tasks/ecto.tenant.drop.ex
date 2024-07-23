@@ -52,7 +52,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Drop do
 
   @impl true
   def run(args) do
-    repos = Mix.Tenant.parse_repo(args)
+    repos = Mix.Ecto.Tenant.parse_repo(args)
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
     opts = Keyword.merge(@default_opts, opts)
 
@@ -88,29 +88,31 @@ defmodule Mix.Tasks.Ecto.Tenant.Drop do
   end
 
   defp drop_database(repo, dyn_repo, opts) do
-    repo.put_dynamic_repo(dyn_repo)
+    config = repo.repo_config(dyn_repo)
 
     config =
       opts
       |> Keyword.take([:force_drop])
-      |> Keyword.merge(repo.config())
+      |> Keyword.merge(config)
+
+    repo_name = Mix.Ecto.Tenant.repo_display_name(repo, dyn_repo)
 
     case repo.__adapter__().storage_down(config) do
       :ok ->
         unless opts[:quiet] do
-          Mix.shell().info("The database for #{inspect(repo)} has been dropped")
+          Mix.shell().info("The database for #{repo_name} has been dropped")
         end
 
       {:error, :already_down} ->
         unless opts[:quiet] do
-          Mix.shell().info("The database for #{inspect(repo)} has already been dropped")
+          Mix.shell().info("The database for #{repo_name} has already been dropped")
         end
 
       {:error, term} when is_binary(term) ->
-        Mix.raise("The database for #{inspect(repo)} couldn't be dropped: #{term}")
+        Mix.raise("The database for #{repo_name} couldn't be dropped: #{term}")
 
       {:error, term} ->
-        Mix.raise("The database for #{inspect(repo)} couldn't be dropped: #{inspect(term)}")
+        Mix.raise("The database for #{repo_name} couldn't be dropped: #{inspect(term)}")
     end
   end
 end

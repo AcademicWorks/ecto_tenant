@@ -1,4 +1,4 @@
-defmodule Mix.Tenant do
+defmodule Mix.Ecto.Tenant do
 
   @doc """
   Parses the repository option from the given command line args list.
@@ -52,6 +52,39 @@ defmodule Mix.Tenant do
 
   defp parse_repo([], acc) do
     Enum.reverse(acc)
+  end
+
+  def repo_display_name(repo, dyn_repo) do
+    if repo == dyn_repo do
+      inspect(repo)
+    else
+      "#{inspect repo} #{inspect dyn_repo}"
+    end
+  end
+
+  def tenant_display_name(tenant) do
+    "Tenant #{inspect tenant[:name]} with schema #{inspect tenant[:prefix]}"
+  end
+
+  def dyn_repo(repo, tenant) do
+    tenant[:repo] || repo
+  end
+
+  def with_repo(repo, tenant, f) do
+    dyn_repo = dyn_repo(repo, tenant)
+    config = repo.repo_config(dyn_repo)
+    apps = config[:start_apps_before_migration] || []
+
+    Enum.each(apps, fn app ->
+      {:ok, started} = Application.ensure_all_started(app, :temporary)
+      started
+    end)
+
+    case repo.start_link(config) do
+      {:ok, _pid} -> {:ok, f.(repo), apps}
+      {:error, {:already_started, _pid}} -> {:ok, f.(repo), apps}
+      error -> error
+    end
   end
 
 end
