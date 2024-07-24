@@ -7,7 +7,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
 
   @aliases [
     r: :repo,
-    n: :step
+    n: :step,
+    t: :tenant
   ]
 
   @switches [
@@ -16,7 +17,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
     to: :integer,
     to_exclusive: :integer,
     quiet: :boolean,
-    prefix: :string,
+    tenant: [:keep, :string],
     pool_size: :integer,
     log_level: :string,
     log_migrations_sql: :boolean,
@@ -57,13 +58,13 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
 
   ## Examples
 
-      $ mix ecto.rollback
-      $ mix ecto.rollback -r Custom.Repo
+      $ mix ecto.tenant.rollback
+      $ mix ecto.tenant.rollback -r Custom.Repo
 
-      $ mix ecto.rollback -n 3
-      $ mix ecto.rollback --step 3
+      $ mix ecto.tenant.rollback -n 3
+      $ mix ecto.tenant.rollback --step 3
 
-      $ mix ecto.rollback --to 20080906120000
+      $ mix ecto.tenant.rollback --to 20080906120000
 
   ## Command line options
 
@@ -92,7 +93,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
     * `--pool-size` - the pool size if the repository is started
       only for the task (defaults to 2)
 
-    * `--prefix` - the prefix to run migrations on
+    * `-t`, `--tenant` - the tenant name to run migrations on. If not specified,
+      will run on all tenants. Can be specified multiple times.
 
     * `--quiet` - do not log migration commands
 
@@ -137,7 +139,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
       paths = ensure_migrations_paths(repo, opts)
       pool = repo.config()[:pool]
 
-      for tenant <- repo.tenants() do
+      Mix.Ecto.Tenant.load_tenants_from_opts(repo, opts)
+      |> Enum.each(fn tenant ->
         dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
         opts = Keyword.put(opts, :dynamic_repo, dyn_repo)
         |> Keyword.put(:prefix, tenant[:prefix])
@@ -156,7 +159,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
           {:error, error} ->
             Mix.raise("Could not start repo #{inspect(repo)}, error: #{inspect(error)}")
         end
-      end
+      end)
 
     end
 

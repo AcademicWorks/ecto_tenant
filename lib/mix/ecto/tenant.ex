@@ -54,6 +54,13 @@ defmodule Mix.Ecto.Tenant do
     Enum.reverse(acc)
   end
 
+  def load_tenants_from_opts(repo, opts) do
+    case Keyword.get_values(opts, :tenant) do
+      [] -> repo.tenants()
+      names -> Enum.map(names, &repo.tenant_config/1)
+    end
+  end
+
   def repo_display_name(repo, dyn_repo) do
     if repo == dyn_repo do
       inspect(repo)

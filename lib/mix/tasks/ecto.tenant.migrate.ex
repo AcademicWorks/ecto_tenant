@@ -7,7 +7,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
 
   @aliases [
     n: :step,
-    r: :repo
+    r: :repo,
+    t: :tenant
   ]
 
   @switches [
@@ -16,7 +17,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     to: :integer,
     to_exclusive: :integer,
     quiet: :boolean,
-    tenant: :string,
+    tenant: [:keep, :string],
     pool_size: :integer,
     log_level: :string,
     log_migrations_sql: :boolean,
@@ -96,7 +97,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     * `--pool-size` - the pool size if the repository is started
       only for the task (defaults to 2)
 
-    * `--tenant` - the tenant to run migrations on
+    * `-t`, `--tenant` - the tenant name to run migrations on. If not specified,
+      will run on all tenants. Can be specified multiple times.
 
     * `--quiet` - do not log migration commands
 
@@ -142,7 +144,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
       sources = Mix.Ecto.Tenant.migration_sources(paths)
       pool = repo.config()[:pool]
 
-      for tenant <- repo.tenants() do
+      Mix.Ecto.Tenant.load_tenants_from_opts(repo, opts)
+      |> Enum.each(fn tenant ->
         dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
 
         opts = Keyword.put(opts, :dynamic_repo, dyn_repo)
@@ -162,7 +165,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
           {:error, error} ->
             Mix.raise("Could not start repo #{inspect(repo)}, error: #{inspect(error)}")
         end
-      end
+      end)
 
     end
 
