@@ -54,6 +54,26 @@ defmodule Mix.Ecto.Tenant do
     Enum.reverse(acc)
   end
 
+  def ensure_repo(repo, args) do
+    # Do not pass the --force switch used by some tasks downstream
+    args = List.delete(args, "--force")
+    Mix.Task.run("app.config", args)
+
+    case Code.ensure_compiled(repo) do
+      {:module, _} ->
+        if function_exported?(repo, :__adapter__, 0) do
+          repo
+        else
+          Mix.raise "Module #{inspect repo} is not an Ecto.Repo. " <>
+                    "Please configure your app accordingly or pass a repo with the -r option."
+        end
+
+      {:error, error} ->
+        Mix.raise "Could not load #{inspect repo}, error: #{inspect error}. " <>
+                  "Please configure your app accordingly or pass a repo with the -r option."
+    end
+  end
+
   def load_tenants_from_opts(repo, opts) do
     case Keyword.get_values(opts, :tenant) do
       [] -> repo.tenants()
@@ -123,6 +143,14 @@ defmodule Mix.Ecto.Tenant do
 
   defp migration?(mod) do
     Code.ensure_loaded?(mod) and function_exported?(mod, :__migration__, 0)
+  end
+
+  def ensure_implements(module, behaviour, message) do
+    all = Keyword.take(module.__info__(:attributes), [:behaviour])
+    unless [behaviour] in Keyword.values(all) do
+      Mix.raise "Expected #{inspect module} to implement #{inspect behaviour} " <>
+                "in order to #{message}"
+    end
   end
 
 end

@@ -3,7 +3,7 @@ import Config
 config :ecto_tenant, ecto_tenant_repos: [Repo]
 
 config :ecto_tenant, Repo,
-  hostname: "locahost",
+  hostname: "0.0.0.0",
   username: "postgres",
   port: 5432,
   tenants: [

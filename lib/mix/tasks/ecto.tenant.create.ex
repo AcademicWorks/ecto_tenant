@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Ecto.Tenant.Create do
   use Mix.Task
-  import Mix.Ecto
+  import Mix.Ecto.Tenant
 
   @shortdoc "Creates the repository storage"
 
@@ -55,26 +55,27 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
         "create storage for #{inspect(repo)}"
       )
 
-      dbg(repo.config())
-      raise "stop"
+      Enum.each(repo.repos(), fn dyn_repo ->
+        repo_config = repo.repo_config(dyn_repo[:name])
 
-      case repo.__adapter__().storage_up(repo.config()) do
-        :ok ->
-          unless opts[:quiet] do
-            Mix.shell().info("The database for #{inspect(repo)} has been created")
-          end
+        case repo.__adapter__().storage_up(repo_config) do
+          :ok ->
+            unless opts[:quiet] do
+              Mix.shell().info("The database for #{inspect(repo)} has been created")
+            end
 
-        {:error, :already_up} ->
-          unless opts[:quiet] do
-            Mix.shell().info("The database for #{inspect(repo)} has already been created")
-          end
+          {:error, :already_up} ->
+            unless opts[:quiet] do
+              Mix.shell().info("The database for #{inspect(repo)} has already been created")
+            end
 
-        {:error, term} when is_binary(term) ->
-          Mix.raise("The database for #{inspect(repo)} couldn't be created: #{term}")
+          {:error, term} when is_binary(term) ->
+            Mix.raise("The database for #{inspect(repo)} couldn't be created: #{term}")
 
-        {:error, term} ->
-          Mix.raise("The database for #{inspect(repo)} couldn't be created: #{inspect(term)}")
-      end
+          {:error, term} ->
+            Mix.raise("The database for #{inspect(repo)} couldn't be created: #{inspect(term)}")
+        end
+      end)
     end)
   end
 end
