@@ -1,7 +1,8 @@
 defmodule Mix.Tasks.Ecto.Tenant.Create do
   use Mix.Task
+  import Mix.Ecto
 
-  @shortdoc "Creates the multitenanted repository storage"
+  @shortdoc "Creates the repository storage"
 
   @switches [
     quiet: :boolean,
@@ -15,83 +16,65 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
     q: :quiet
   ]
 
-  @impl Mix.Task
+  @moduledoc """
+  Create the storage for the given repository.
 
+  The repositories to create are the ones specified under the
+  `:ecto_repos` option in the current app configuration. However,
+  if the `-r` option is given, it replaces the `:ecto_repos` config.
+
+  Since Ecto tasks can only be executed once, if you need to create
+  multiple repositories, set `:ecto_repos` accordingly or pass the `-r`
+  flag multiple times.
+
+  ## Examples
+
+      $ mix ecto.create
+      $ mix ecto.create -r Custom.Repo
+
+  ## Command line options
+
+    * `-r`, `--repo` - the repo to create
+    * `--quiet` - do not log output
+    * `--no-compile` - do not compile before creating
+    * `--no-deps-check` - do not compile before creating
+
+  """
+
+  @impl true
   def run(args) do
+    repos = parse_repo(args)
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
 
-    Mix.Ecto.Tenant.parse_repo(args)
-    |> Enum.each(fn repo ->
-      Enum.reduce(repo.tenants(), MapSet.new(), fn tenant, seen ->
-        dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
+    Enum.each(repos, fn repo ->
+      ensure_repo(repo, args)
 
-        if dyn_repo not in seen do
-          create_repo(repo, dyn_repo, args, opts)
-        end
+      ensure_implements(
+        repo.__adapter__(),
+        Ecto.Adapter.Storage,
+        "create storage for #{inspect(repo)}"
+      )
 
-        Mix.Ecto.Tenant.with_repo(repo, tenant, fn _->
-          create_tenant(repo, dyn_repo, tenant, opts)
-        end)
+      dbg(repo.config())
+      raise "stop"
 
-        MapSet.put(seen, dyn_repo)
-      end)
+      case repo.__adapter__().storage_up(repo.config()) do
+        :ok ->
+          unless opts[:quiet] do
+            Mix.shell().info("The database for #{inspect(repo)} has been created")
+          end
+
+        {:error, :already_up} ->
+          unless opts[:quiet] do
+            Mix.shell().info("The database for #{inspect(repo)} has already been created")
+          end
+
+        {:error, term} when is_binary(term) ->
+          Mix.raise("The database for #{inspect(repo)} couldn't be created: #{term}")
+
+        {:error, term} ->
+          Mix.raise("The database for #{inspect(repo)} couldn't be created: #{inspect(term)}")
+      end
     end)
   end
-
-  defp create_repo(repo, dyn_repo, args, opts) do
-    import Mix.Ecto
-
-    config = repo.repo_config(dyn_repo)
-
-    ensure_repo(repo, args)
-
-    ensure_implements(
-      repo.__adapter__(),
-      Ecto.Adapter.Storage,
-      "create storage for #{inspect(repo)}"
-    )
-
-    repo_name = Mix.Ecto.Tenant.repo_display_name(repo, dyn_repo)
-
-    case repo.__adapter__().storage_up(config) do
-      :ok ->
-        unless opts[:quiet] do
-          Mix.shell().info("The database for #{repo_name} has been created")
-        end
-
-      {:error, :already_up} ->
-        unless opts[:quiet] do
-          Mix.shell().info("The database for #{repo_name} has already been created")
-        end
-
-      {:error, term} when is_binary(term) ->
-        Mix.raise("The database for #{repo_name} couldn't be created: #{term}")
-
-      {:error, term} ->
-        Mix.raise("The database for #{repo_name} couldn't be created: #{inspect(term)}")
-    end
-  end
-
-  defp create_tenant(_repo, dyn_repo, tenant, opts) do
-    sql = "CREATE SCHEMA IF NOT EXISTS #{tenant[:prefix]}"
-    result = Ecto.Adapters.SQL.query!(dyn_repo, sql, [], log: false)
-
-    tenant_name = Mix.Ecto.Tenant.tenant_display_name(tenant)
-
-    case result.messages do
-      [] ->
-        unless opts[:quiet] do
-          Mix.shell().info("#{tenant_name} has been created")
-        end
-
-      [%{code: "42P06"}] ->
-        unless opts[:quiet] do
-          Mix.shell().info("#{tenant_name} has already been created")
-        end
-
-      [%{message: message}] ->
-        Mix.raise("#{tenant_name} couldn't be created: #{message}")
-    end
-  end
-
 end
