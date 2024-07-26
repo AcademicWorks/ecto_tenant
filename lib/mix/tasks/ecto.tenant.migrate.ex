@@ -153,13 +153,13 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
               &migrator.(&1, paths, :up, opts)
             end
 
-            case with_repo(repo, tenant, fun) do
-              {:ok, _migrated, _apps} ->
-                :ok
+          case with_repo(repo, tenant, fun) do
+            {:ok, _migrated, _apps} ->
+              :ok
 
-              {:error, error} ->
-                Mix.raise("Could not start repo #{inspect(repo)}, error: #{inspect(error)}")
-            end
+            {:error, error} ->
+              Mix.raise("Could not start repo #{inspect(repo)}, error: #{inspect(error)}")
+          end
         end)
       end)
     end
