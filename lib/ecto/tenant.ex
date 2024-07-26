@@ -46,8 +46,6 @@ defmodule Ecto.Tenant do
           nil -> {:error, "Tenant not found"}
           tenant ->
             put_dynamic_repo(tenant[:repo])
-            repo_config = repo_config(tenant[:repo])
-            start_link(repo_config)
             Process.put(@current_tenant_key, tenant[:name])
             {:ok, name}
         end
