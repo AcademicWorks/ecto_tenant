@@ -107,7 +107,6 @@ defmodule Mix.Ecto.Tenant do
       started
     end)
 
-    config = Keyword.put(config, :name, repo)
     case repo.start_link(config) do
       {:ok, _pid} -> {:ok, f.(repo), apps}
       {:error, {:already_started, _pid}} -> {:ok, f.(repo), apps}

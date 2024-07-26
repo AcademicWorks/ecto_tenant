@@ -68,11 +68,13 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
               Mix.shell().info("The database for #{repo_name} has been created")
             end
 
+            repo.start_link(repo_config)
+
             schema_results = Enum.map(tenants, fn tenant ->
-              fun = & &1.query!("CREATE SCHEMA IF NOT EXISTS #{tenant[:prefix]}")
-              with_repo(repo, tenant, fun)
+              sql = "CREATE SCHEMA IF NOT EXISTS #{tenant[:prefix]}"
+              Ecto.Adapters.SQL.query(dyn_repo, sql, [], log: false)
             end)
-            |> Enum.all?(fn {status, _, _} -> status == :ok end)
+            |> Enum.all?(fn {status, _} -> status == :ok end)
 
             case schema_results do
               true ->

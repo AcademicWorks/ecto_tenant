@@ -139,9 +139,9 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
 
       repo.tenants()
       |> Enum.group_by(& &1[:repo])
-      |> Enum.each(fn {_dyn_repo, tenants} ->
+      |> Enum.each(fn {dyn_repo, tenants} ->
         Enum.each(tenants, fn tenant ->
-          opts = Keyword.merge(opts, prefix: tenant[:prefix])
+          opts = Keyword.merge(opts, dynamic_repo: dyn_repo, prefix: tenant[:prefix])
           fun =
             if Code.ensure_loaded?(pool) and function_exported?(pool, :unboxed_run, 2) do
               &pool.unboxed_run(&1, fn -> migrator.(&1, paths, :down, opts) end)
