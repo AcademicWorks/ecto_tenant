@@ -12,6 +12,7 @@ defmodule Ecto.Tenant do
       @behaviour Ecto.Tenant
       @otp_app unquote(opts[:otp_app])
       @current_tenant_key String.to_atom("#{inspect __MODULE__}:current")
+      @dynamic_repo_key String.to_atom("#{inspect __MODULE__}:dynamic_repo")
 
       @impl true
       def tenants do
@@ -53,7 +54,18 @@ defmodule Ecto.Tenant do
 
       @impl true
       def current_tenant() do
-        Process.get(@current_tenant_key, :undefined)
+        case Process.get(@current_tenant_key, :undefined) do
+          :undefined ->
+            Process.get(:"$callers", [])
+            |> Enum.find_value(fn pid ->
+              {:dictionary, dictionary} = Process.info(pid, :dictionary)
+              case Keyword.get(dictionary, @current_tenant_key, :undefined) do
+                :undefined -> false
+                tenant -> tenant
+              end
+            end)
+          tenant -> tenant
+        end
       end
 
       def default_options(_) do
@@ -63,6 +75,27 @@ defmodule Ecto.Tenant do
           nil -> []
           tenant -> [prefix: tenant[:prefix]]
         end
+      end
+
+      defoverridable [get_dynamic_repo: 0]
+      def get_dynamic_repo() do
+        case Process.get(@dynamic_repo_key, :undefined) do
+          :undefined ->
+            Process.get(:"$callers", [])
+            |> Enum.find_value(fn pid ->
+              {:dictionary, dictionary} = Process.info(pid, :dictionary)
+              case Keyword.get(dictionary, @dynamic_repo_key, :undefined) do
+                :undefined -> false
+                repo -> repo
+              end
+            end)
+          repo -> repo
+        end
+      end
+
+      defoverridable [put_dynamic_repo: 1]
+      def put_dynamic_repo(dynamic) when is_atom(dynamic) or is_pid(dynamic) do
+        Process.put(@dynamic_repo_key, dynamic) || @default_dynamic_repo
       end
     end
   end
