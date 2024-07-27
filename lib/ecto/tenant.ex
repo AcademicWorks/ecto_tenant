@@ -1,6 +1,11 @@
 defmodule Ecto.Tenant do
+  defstruct [:name, :repo, :dynamic_repo, :prefix]
 
-  @callback tenants :: [Keyword.t]
+  defmodule RepoSpec do
+    defstruct [:name, :repo, :config]
+  end
+
+  @callback tenant_configs :: [Keyword.t]
 
   defmacro __using__(opts \\ []) do
     quote do
@@ -8,32 +13,22 @@ defmodule Ecto.Tenant do
       @otp_app unquote(opts[:otp_app])
       @behaviour Ecto.Tenant
 
-      def tenants do
+      def tenant_configs do
         Application.get_env(@otp_app, __MODULE__, [])
         |> Keyword.get(:tenants, [])
       end
 
       def tenant_config(name) do
-        Enum.find(tenants(), & &1[:name] == name)
+        Enum.find(tenant_configs(), & &1[:name] == name)
       end
 
-      def repos do
+      def dynamic_repo_configs do
         Application.get_env(@otp_app, __MODULE__, [])
-        |> Keyword.get(:repos, [])
+        |> Keyword.get(:dynamic_repos, [])
       end
 
-      def repo_config(name) do
-        base_config = Application.get_env(@otp_app, __MODULE__, [])
-
-        config = if name == __MODULE__ do
-          base_config
-        else
-          config = Enum.find(repos(), & &1[:name] == name) ||
-            raise ArgumentError, "repo #{inspect name} not found"
-          Keyword.merge(base_config, config)
-        end
-
-        Keyword.drop(config, [:tenants, :repos])
+      def dynamic_repo_config(name) do
+        Enum.find(dynamic_repo_configs(), & &1[:name] == name)
       end
 
     end

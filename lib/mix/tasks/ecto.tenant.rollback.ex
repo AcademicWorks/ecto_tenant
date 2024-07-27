@@ -137,30 +137,26 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
     for repo <- repos do
       ensure_repo(repo, args)
       paths = ensure_migrations_paths(repo, opts)
+      sources = Mix.Ecto.Tenant.migration_sources(paths)
       pool = repo.config()[:pool]
 
-      Mix.Ecto.Tenant.load_tenants_from_opts(repo, opts)
+      Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
       |> Enum.each(fn tenant ->
-        dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
-        opts = Keyword.put(opts, :dynamic_repo, dyn_repo)
-        |> Keyword.put(:prefix, tenant[:prefix])
+        Mix.Ecto.Tenant.start_repo(tenant)
 
-        fun =
-          if Code.ensure_loaded?(pool) and function_exported?(pool, :unboxed_run, 2) do
-            &pool.unboxed_run(&1, fn -> migrator.(&1, paths, :down, opts) end)
-          else
-            &migrator.(&1, paths, :down, opts)
-          end
+        opts = Keyword.merge(opts,
+          dynamic_repo: tenant.dynamic_repo,
+          prefix: tenant.prefix
+        )
 
-        case Mix.Ecto.Tenant.with_repo(repo, tenant, fun) do
-          {:ok, _migrated, _apps} ->
-            :ok
-
-          {:error, error} ->
-            Mix.raise("Could not start repo #{inspect(repo)}, error: #{inspect(error)}")
+        f = if Code.ensure_loaded?(pool) and function_exported?(pool, :unboxed_run, 2) do
+          &pool.unboxed_run(&1, fn -> migrator.(&1, sources, :down, opts) end)
+        else
+          &migrator.(&1, sources, :down, opts)
         end
-      end)
 
+        f.(tenant.repo)
+      end)
     end
 
     :ok

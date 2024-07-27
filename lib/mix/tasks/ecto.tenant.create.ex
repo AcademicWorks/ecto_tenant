@@ -22,26 +22,38 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
 
     Mix.Ecto.Tenant.parse_repo(args)
     |> Enum.each(fn repo ->
-      Enum.reduce(repo.tenants(), MapSet.new(), fn tenant, seen ->
-        dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
-
-        if dyn_repo not in seen do
-          create_repo(repo, dyn_repo, args, opts)
-        end
-
-        Mix.Ecto.Tenant.with_repo(repo, tenant, fn _->
-          create_tenant(repo, dyn_repo, tenant, opts)
-        end)
-
-        MapSet.put(seen, dyn_repo)
+      Mix.Ecto.Tenant.all_repo_specs(repo)
+      |> Enum.each(fn repo_spec ->
+        create_repo(repo_spec, args, opts)
       end)
+
+      Mix.Ecto.Tenant.all_tenants(repo)
+      |> Enum.each(fn tenant ->
+        Mix.Ecto.Tenant.start_repo(tenant)
+        create_tenant(tenant, opts)
+      end)
+
+      # repo.repos()
+      # |> Enum.each(fn repo_config ->
+      #   create_repo(repo, repo_config[:name] || repo, args, opts)
+      # end)
+
+      # repo.tenants()
+      # |> Enum.each(fn tenant ->
+      #   Mix.Ecto.Tenant.with_repo(repo, tenant, fn _->
+      #     create_tenant(repo, tenant, opts)
+      #   end)
+      # end)
     end)
   end
 
-  defp create_repo(repo, dyn_repo, args, opts) do
+  defp create_repo(spec, args, opts) do
     import Mix.Ecto
 
-    config = repo.repo_config(dyn_repo)
+    %{
+      repo: repo,
+      config: config
+    } = spec
 
     ensure_repo(repo, args)
 
@@ -51,7 +63,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
       "create storage for #{inspect(repo)}"
     )
 
-    repo_name = Mix.Ecto.Tenant.repo_display_name(repo, dyn_repo)
+    repo_name = Mix.Ecto.Tenant.display_name(spec)
 
     case repo.__adapter__().storage_up(config) do
       :ok ->
@@ -72,11 +84,11 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
     end
   end
 
-  defp create_tenant(_repo, dyn_repo, tenant, opts) do
-    sql = "CREATE SCHEMA IF NOT EXISTS #{tenant[:prefix]}"
-    result = Ecto.Adapters.SQL.query!(dyn_repo, sql, [], log: false)
+  defp create_tenant(tenant, opts) do
+    sql = "CREATE SCHEMA IF NOT EXISTS #{tenant.prefix}"
+    result = Ecto.Adapters.SQL.query!(tenant.dynamic_repo, sql, [], log: false)
 
-    tenant_name = Mix.Ecto.Tenant.tenant_display_name(tenant)
+    tenant_name = Mix.Ecto.Tenant.display_name(tenant)
 
     case result.messages do
       [] ->

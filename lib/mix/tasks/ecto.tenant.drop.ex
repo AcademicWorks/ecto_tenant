@@ -65,20 +65,16 @@ defmodule Mix.Tasks.Ecto.Tenant.Drop do
         "drop storage for #{inspect(repo)}"
       )
 
-      Enum.reduce(repo.tenants(), MapSet.new(), fn tenant, seen ->
-        dyn_repo = tenant[:repo] || repo
-
-        if dyn_repo not in seen do
-          if skip_safety_warnings?() or
-              opts[:force] or
-              Mix.shell().yes?(
-                "Are you sure you want to drop the database for repo #{inspect(repo)}?"
-              ) do
-            drop_database(repo, dyn_repo, opts)
-          end
+      Mix.Ecto.Tenant.all_repo_specs(repo)
+      |> Enum.each(fn spec ->
+        display_name = Mix.Ecto.Tenant.display_name(spec)
+        if skip_safety_warnings?() or
+            opts[:force] or
+            Mix.shell().yes?(
+              "Are you sure you want to drop the database for repo #{display_name}?"
+            ) do
+          drop_database(spec, opts)
         end
-
-        MapSet.put(seen, dyn_repo)
       end)
     end)
   end
@@ -87,15 +83,15 @@ defmodule Mix.Tasks.Ecto.Tenant.Drop do
     Mix.Project.config()[:start_permanent] != true
   end
 
-  defp drop_database(repo, dyn_repo, opts) do
-    config = repo.repo_config(dyn_repo)
+  defp drop_database(spec, opts) do
+    %{repo: repo, config: config} = spec
 
     config =
       opts
       |> Keyword.take([:force_drop])
       |> Keyword.merge(config)
 
-    repo_name = Mix.Ecto.Tenant.repo_display_name(repo, dyn_repo)
+    repo_name = Mix.Ecto.Tenant.display_name(spec)
 
     case repo.__adapter__().storage_down(config) do
       :ok ->

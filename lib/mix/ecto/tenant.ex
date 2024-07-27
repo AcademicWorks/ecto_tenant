@@ -54,38 +54,135 @@ defmodule Mix.Ecto.Tenant do
     Enum.reverse(acc)
   end
 
-  def load_tenants_from_opts(repo, opts) do
+  def tenants_from_opts(repo, opts) do
     case Keyword.get_values(opts, :tenant) do
-      [] -> repo.tenants()
-      names -> Enum.map(names, &repo.tenant_config/1)
+      [] -> all_tenants(repo)
+      names ->
+        tenant_by_name = all_tenants(repo)
+        |> Map.new(&{&1.name, &1})
+
+        Enum.map(names, &Map.fetch!(tenant_by_name, &1))
     end
   end
 
-  def repo_display_name(repo, dyn_repo) do
-    if repo == dyn_repo do
-      inspect(repo)
+  def display_name(%Ecto.Tenant.RepoSpec{} = spec) do
+    if spec.repo == spec.name do
+      inspect(spec.repo)
     else
-      "#{inspect repo} #{inspect dyn_repo}"
+      "#{inspect spec.repo} #{inspect spec.name}"
     end
   end
 
-  def tenant_display_name(tenant) do
-    "Tenant #{inspect tenant[:name]} with schema #{inspect tenant[:prefix]}"
+  def display_name(%Ecto.Tenant{} = tenant) do
+    "Tenant #{inspect tenant.name} with schema #{inspect tenant.prefix}"
+  end
+
+  def all_tenants(repo) do
+    repo.tenant_configs()
+    |> Enum.map(fn config ->
+      %Ecto.Tenant{
+        name: Keyword.fetch!(config, :name),
+        repo: repo,
+        dynamic_repo: config[:dynamic_repo] || repo,
+        prefix: config[:prefix]
+      }
+    end)
+  end
+
+  def all_repo_specs(repo) do
+    base_config = repo.config()
+    |> Keyword.drop([:tenants, :dynamic_repos])
+
+    specs = repo.dynamic_repo_configs()
+    |> Enum.map(fn config ->
+      %Ecto.Tenant.RepoSpec{
+        repo: repo,
+        name: Keyword.fetch!(config, :name),
+        config: Keyword.merge(base_config, config)
+      }
+    end)
+
+    if Keyword.has_key?(base_config, :database) do
+      spec = %Ecto.Tenant.RepoSpec{
+        repo: repo,
+        name: repo,
+        config: base_config
+      }
+      [spec | specs]
+    else
+      specs
+    end
+  end
+
+  def all_dynamic_repos(repo) do
+    base_config = repo.config()
+    |> Keyword.drop([:tenants, :dynamic_repos])
+
+    repo.dynamic_repo_configs()
+    |> Enum.map(fn config ->
+      %Ecto.Tenant.RepoSpec{
+        name: Keyword.fetch!(config, :name),
+        repo: repo,
+        config: Keyword.merge(base_config, config)
+      }
+    end)
+  end
+
+  def fetch_dynamic_repo!(repo, name) do
+    all_dynamic_repos(repo)
+    |> Enum.find(& &1.name == name)
+    || raise ArgumentError, "Dynamic repo #{inspect name} for #{inspect repo} not found"
+  end
+
+  def fetch_repo_spec!(tenant) do
+    all_repo_specs(tenant.repo)
+    |> Enum.find(& &1.name == tenant.dynamic_repo)
+    || raise ArgumentError, "Repo spec for tenant #{inspect tenant.name} not found"
+  end
+
+  def tenant_configs(repo) do
+    repo.tenant_configs()
+    |> Enum.map(fn config ->
+      Keyword.put_new(config, :repo, repo)
+    end)
   end
 
   def dyn_repo(repo, tenant) do
     tenant[:repo] || repo
   end
 
+  def start_repo(tenant) do
+    config = tenant.repo.config()
+    apps = [:ecto_sql | config[:start_apps_before_migration] || []]
+
+    Enum.each(apps, fn app ->
+      {:ok, _} = Application.ensure_all_started(app, :temporary)
+    end)
+
+    {:ok, _} = tenant.repo.__adapter__().ensure_all_started(config, :temporary)
+
+    spec = fetch_repo_spec!(tenant)
+
+    case tenant.repo.start_link(spec.config) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+    end
+  end
+
   def with_repo(repo, tenant, f) do
     dyn_repo = dyn_repo(repo, tenant)
     config = repo.repo_config(dyn_repo)
-    apps = config[:start_apps_before_migration] || []
+    apps = [:ecto_sql | config[:start_apps_before_migration] || []]
 
     Enum.each(apps, fn app ->
       {:ok, started} = Application.ensure_all_started(app, :temporary)
       started
     end)
+
+    # mode = Keyword.get(opts, :mode, :permanent)
+    mode = :permanent
+
+    {:ok, _repo_started} = repo.__adapter__().ensure_all_started(config, mode)
 
     case repo.start_link(config) do
       {:ok, _pid} -> {:ok, f.(repo), apps}

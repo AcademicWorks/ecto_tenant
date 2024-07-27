@@ -3,14 +3,24 @@ import Config
 config :ecto_tenant, ecto_tenant_repos: [Repo]
 
 config :ecto_tenant, Repo,
-  host: "locahost",
-  port: 5432,
+  hostname: "postgres",
   username: "postgres",
+  port: 5432,
   tenants: [
-    [name: "foo", prefix: "client_foo", repo: :one],
-    [name: "bar", prefix: "client_bar", repo: :two]
+    [name: "foo", prefix: "client_foo", dynamic_repo: :one],
+    [name: "bar", prefix: "client_bar", dynamic_repo: :two]
   ],
-  repos: [
+  dynamic_repos: [
     [name: :one, database: "tenant_one_dev"],
     [name: :two, database: "tenant_two_dev"]
+  ]
+
+config :ecto_tenant, SingleDbRepo,
+  hostname: "postgres",
+  username: "postgres",
+  database: "single_db_repo_dev",
+  port: 5432,
+  tenants: [
+    [name: "foo", prefix: "tenant_foo"],
+    [name: "bar", prefix: "tenant_bar"],
   ]

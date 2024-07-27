@@ -7,3 +7,19 @@ services:
         - POSTGRES_HOST_AUTH_METHOD=trust
       ports:
         - 5432:5432
+
+  dev-env:
+    image: elixir-dev:latest
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - .:/ecto_tenant
+      - ex-build:/ecto_tenant/_build
+    shm_size: 256m
+    build:
+      dockerfile: Dockerfile
+  
+volumes:
+  ex-build:
+    name: ex-build
+  ex-deps:
+    name: ex-deps
