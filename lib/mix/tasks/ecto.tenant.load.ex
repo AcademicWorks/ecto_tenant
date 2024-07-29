@@ -4,13 +4,15 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
   import Mix.EctoSQL
 
   @shortdoc "Loads previously dumped database structure"
-  @default_opts [force: false, quiet: false]
+  @default_opts [force: false, quiet: false, concurrency: 10]
 
   @aliases [
     d: :dump_path,
     f: :force,
     q: :quiet,
-    r: :repo
+    r: :repo,
+    t: :tenant,
+    c: :concurrency
   ]
 
   @switches [
@@ -18,6 +20,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
     force: :boolean,
     quiet: :boolean,
     repo: [:string, :keep],
+    tenant: [:string, :keep],
+    concurrency: :integer,
     no_compile: :boolean,
     no_deps_check: :boolean,
     skip_if_loaded: :boolean
@@ -57,7 +61,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
   """
 
   @impl true
-  def run(args, table_exists? \\ &Ecto.Adapters.SQL.table_exists?/3) do
+  def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
     opts = Keyword.merge(@default_opts, opts)
     opts = if opts[:quiet], do: Keyword.put(opts, :log, false), else: opts
@@ -75,56 +79,83 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
       {migration_repo, source} =
         Ecto.Migration.SchemaMigration.get_repo_and_source(repo, repo.config())
 
-      Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
-      |> Enum.each(fn tenant ->
-        dyn_repo = Mix.Ecto.Tenant.dyn_repo(repo, tenant)
-        migration_repo.put_dynamic_repo(dyn_repo)
+      if migration_repo != repo do
+        Mix.raise("migration_repo not supported at this time")
+      end
 
-        {:ok, loaded?, _} =
-          Mix.Ecto.Tenant.with_repo(migration_repo, tenant, table_exists_closure(table_exists?, source, opts))
+      tenants = Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
 
-          dbg(loaded?)
-          raise "stop"
+      if Enum.count(tenants) > 1 && opts[:dump_path] do
+        Mix.raise("--dump-path only works when loading a single tenant")
+      end
 
-        for repo <- Enum.uniq([repo, migration_repo]) do
-          cond do
-            loaded? and opts[:skip_if_loaded] ->
-              :ok
+      Mix.Ecto.Tenant.start_all_repos(tenants)
 
-            (skip_safety_warnings?() and not loaded?) or opts[:force] or confirm_load(repo, loaded?) ->
-              load_structure(repo, opts)
-
-            true ->
-              :ok
-          end
+      if not (skip_safety_warnings?() or opts[:force]) do
+        if opts[:skip_if_loaded] do
+          confirm_load(repo)
+        else
+          warn_about_loaded_tenants(repo, tenants, source)
         end
-      end)
+      end
+
+      Task.async_stream(tenants, fn tenant ->
+        dump_path = Mix.Ecto.Tenant.dump_path(tenant, opts)
+        if not File.exists?(dump_path) do
+          Mix.shell().info("[WARNING] The structure for tenant #{inspect tenant.name} does not exist at #{dump_path}")
+        else
+          opts = Keyword.merge(opts,
+            dump_path: dump_path
+          )
+          load_structure(tenant.repo, opts)
+        end
+      end, max_concurrency: opts[:concurrency], timeout: :infinity)
+      |> Stream.run()
     end)
   end
 
-  defp table_exists_closure(fun, source, opts) when is_function(fun, 3) do
-    &fun.(&1, source, opts)
+  defp warn_about_loaded_tenants(repo, tenants, source) do
+    loaded = Enum.filter(tenants, fn tenant ->
+      table_exists?(tenant, source)
+    end)
+    |> Enum.count()
+
+    if loaded > 0 do
+      Mix.shell().yes?("""
+      It looks like structure was already loaded for #{loaded} tenant(s). Any attempt to load again might fail.
+      Are you sure you want to proceed?
+      """)
+    else
+      confirm_load(repo)
+    end
   end
 
-  defp table_exists_closure(fun, source, _opts) when is_function(fun, 2) do
-    &fun.(&1, source)
+  defp table_exists?(tenant, table) do
+    {sql, params} = case tenant.repo.__adapter__() do
+      Ecto.Adapters.Postgres -> {
+        "SELECT true FROM information_schema.tables WHERE table_name = $1 AND table_schema = $2 LIMIT 1",
+        [table, tenant.prefix]
+      }
+    end
+
+    result = Ecto.Adapters.SQL.query!(tenant.dynamic_repo, sql, params, log: false)
+
+    result.num_rows > 0
   end
+
+  # defp drop_schema(tenant) do
+  #   sql = "DROP SCHEMA IF EXISTS #{tenant.prefix} CASCADE"
+  #   result = Ecto.Adapters.SQL.query!(tenant.dynamic_repo, sql, [], log: false)
+  # end
 
   defp skip_safety_warnings? do
     Mix.Project.config()[:start_permanent] != true
   end
 
-  defp confirm_load(repo, false) do
+  defp confirm_load(repo) do
     Mix.shell().yes?(
-      "Are you sure you want to load a new structure for #{inspect(repo)}? Any existing data in this repo may be lost."
+      "Are you sure you want to load a new structure for tenants in #{inspect(repo)}? Any existing data in this repo may be lost."
     )
-  end
-
-  defp confirm_load(repo, true) do
-    Mix.shell().yes?("""
-    It looks like a structure was already loaded for #{inspect(repo)}. Any attempt to load it again might fail.
-    Are you sure you want to proceed?
-    """)
   end
 
   defp load_structure(repo, opts) do

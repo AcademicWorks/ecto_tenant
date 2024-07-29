@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
   import Mix.EctoSQL
 
   @shortdoc "Runs the repository migrations"
+  @default_opts [concurrency: 10]
 
   @aliases [
     n: :step,
@@ -18,7 +19,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
     to_exclusive: :integer,
     quiet: :boolean,
     tenant: [:keep, :string],
-    pool_size: :integer,
+    concurrency: :integer,
     log_level: :string,
     log_migrations_sql: :boolean,
     log_migrator_sql: :boolean,
@@ -94,8 +95,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
 
     * `--no-deps-check` - does not check dependencies before migrating
 
-    * `--pool-size` - the pool size if the repository is started
-      only for the task (defaults to 2)
+    * `-c`, `--concurrency` - run migrations for tenants concurrently (defaults to 10)
 
     * `-t`, `--tenant` - the tenant name to run migrations on. If not specified,
       will run on all tenants. Can be specified multiple times.
@@ -119,6 +119,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
   def run(args, migrator \\ &Ecto.Migrator.run/4) do
     repos = Mix.Ecto.Tenant.parse_repo(args)
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
+    opts = Keyword.merge(@default_opts, opts)
 
     opts =
       if opts[:to] || opts[:to_exclusive] || opts[:step] || opts[:all],
@@ -144,9 +145,11 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
       sources = Mix.Ecto.Tenant.migration_sources(paths)
       pool = repo.config()[:pool]
 
-      Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
-      |> Enum.each(fn tenant ->
-        Mix.Ecto.Tenant.start_repo(tenant)
+      tenants = Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
+      Mix.Ecto.Tenant.start_all_repos(tenants, pool_size: opts[:concurrency] + 1)
+
+      Task.async_stream(tenants, fn tenant ->
+        create_tenant(tenant)
 
         opts = Keyword.merge(opts,
           dynamic_repo: tenant.dynamic_repo,
@@ -161,9 +164,22 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
 
         f.(tenant.repo)
       end)
+      |> Stream.run()
     end
 
     :ok
+  end
+
+  defp create_tenant(tenant) do
+    sql = "CREATE SCHEMA IF NOT EXISTS #{tenant.prefix}"
+    result = Ecto.Adapters.SQL.query!(tenant.dynamic_repo, sql, [], log: false)
+    tenant_name = Mix.Ecto.Tenant.display_name(tenant)
+
+    case result.messages do
+      [] -> :ok
+      [%{code: "42P06"}] -> :ok
+      [%{message: message}] -> Mix.raise("#{tenant_name} couldn't be created: #{message}")
+    end
   end
 
 end

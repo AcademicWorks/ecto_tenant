@@ -134,10 +134,14 @@ defmodule Mix.Ecto.Tenant do
     || raise ArgumentError, "Dynamic repo #{inspect name} for #{inspect repo} not found"
   end
 
-  def fetch_repo_spec!(tenant) do
-    all_repo_specs(tenant.repo)
-    |> Enum.find(& &1.name == tenant.dynamic_repo)
-    || raise ArgumentError, "Repo spec for tenant #{inspect tenant.name} not found"
+  def fetch_repo_spec!(%Ecto.Tenant{} = tenant) do
+    fetch_repo_spec!(tenant.repo, tenant.dynamic_repo)
+  end
+
+  def fetch_repo_spec!(repo, name) do
+    all_repo_specs(repo)
+    |> Enum.find(& &1.name == name)
+    || raise ArgumentError, "Repo spec for #{inspect name} not found in #{inspect repo}"
   end
 
   def tenant_configs(repo) do
@@ -151,22 +155,43 @@ defmodule Mix.Ecto.Tenant do
     tenant[:repo] || repo
   end
 
-  def start_repo(tenant) do
-    config = tenant.repo.config()
+  def start_repo(spec_or_tenant, opts \\ [])
+
+  def start_repo(%Ecto.Tenant.RepoSpec{} = spec, opts) do
+    %{repo: repo} = spec
+
+    config = repo.config()
     apps = [:ecto_sql | config[:start_apps_before_migration] || []]
 
     Enum.each(apps, fn app ->
       {:ok, _} = Application.ensure_all_started(app, :temporary)
     end)
 
-    {:ok, _} = tenant.repo.__adapter__().ensure_all_started(config, :temporary)
+    {:ok, _} = repo.__adapter__().ensure_all_started(config, :temporary)
 
-    spec = fetch_repo_spec!(tenant)
+    config = Keyword.merge(spec.config, opts)
 
-    case tenant.repo.start_link(spec.config) do
+    case repo.start_link(config) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
     end
+  end
+
+  def start_repo(%Ecto.Tenant{} = tenant, opts) do
+    fetch_repo_spec!(tenant)
+    |> start_repo(opts)
+  end
+
+  def start_all_repos(tenants, opts \\ []) do
+    repo = List.first(tenants)
+    |> Map.get(:repo)
+
+    Stream.map(tenants, & &1.dynamic_repo)
+    |> Enum.uniq()
+    |> Enum.each(fn dyn_repo ->
+      :ok = Mix.Ecto.Tenant.fetch_repo_spec!(repo, dyn_repo)
+      |> Mix.Ecto.Tenant.start_repo(opts)
+    end)
   end
 
   def with_repo(repo, tenant, f) do
@@ -220,6 +245,14 @@ defmodule Mix.Ecto.Tenant do
 
   defp migration?(mod) do
     Code.ensure_loaded?(mod) and function_exported?(mod, :__migration__, 0)
+  end
+
+  def dump_path(tenant, opts) do
+    opts[:dump_path] || Path.join([
+      Mix.EctoSQL.source_repo_priv(tenant.repo),
+      "structure",
+      "#{tenant.name}.sql"
+    ])
   end
 
 end

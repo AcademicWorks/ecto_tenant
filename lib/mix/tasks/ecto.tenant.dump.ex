@@ -4,13 +4,14 @@ defmodule Mix.Tasks.Ecto.Tenant.Dump do
   import Mix.EctoSQL
 
   @shortdoc "Dumps the repository database structure"
-  @default_opts [quiet: false]
+  @default_opts [quiet: false, concurrency: 10]
 
   @aliases [
     d: :dump_path,
     q: :quiet,
     r: :repo,
-    t: :tenant
+    t: :tenant,
+    c: :concurrency
   ]
 
   @switches [
@@ -19,7 +20,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Dump do
     repo: [:string, :keep],
     no_compile: :boolean,
     no_deps_check: :boolean,
-    tenant: [:string, :keep]
+    tenant: [:string, :keep],
+    concurrency: :integer
   ]
 
   @moduledoc """
@@ -63,16 +65,9 @@ defmodule Mix.Tasks.Ecto.Tenant.Dump do
   def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
 
-    dump_prefixes =
-      case Keyword.get_values(opts, :prefix) do
-        [_ | _] = prefixes -> prefixes
-        [] -> nil
-      end
-
     opts =
       @default_opts
       |> Keyword.merge(opts)
-      |> Keyword.put(:dump_prefixes, dump_prefixes)
 
     Mix.Ecto.Tenant.parse_repo(args)
     |> Enum.each(fn repo ->
@@ -87,25 +82,34 @@ defmodule Mix.Tasks.Ecto.Tenant.Dump do
       migration_repo = repo.config()[:migration_repo] || repo
 
       for repo <- Enum.uniq([repo, migration_repo]) do
-        Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
-        |> Enum.group_by(& &1.dynamic_repo)
-        |> Enum.each(fn {dyn_repo, tenants} ->
+        tenants = Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
 
-          config = repo.repo_config(dyn_repo)
-          |> Keyword.merge(opts)
-          |> Keyword.put(:dump_prefixes, Enum.map(tenants, & &1[:prefix]))
-          |> add_dump_path(repo, dyn_repo)
+        if Enum.count(tenants) > 1 && opts[:dump_path] do
+          Mix.raise("--dump-path only works when dumping a single tenant")
+        end
 
-          dump(repo, dyn_repo, config, opts)
-        end)
+        Task.async_stream(tenants, fn tenant ->
+          dump(tenant, opts)
+        end, max_concurrency: opts[:concurrency], timeout: :infinity)
+        |> Stream.run()
       end
     end)
   end
 
-  defp dump(repo, dyn_repo, config, opts) do
-    start_time = System.system_time()
+  defp dump(tenant, opts) do
+    repo = tenant.repo
+    repo_spec = Mix.Ecto.Tenant.fetch_repo_spec!(tenant)
 
-    repo_name = Mix.Ecto.Tenant.display_name(dyn_repo)
+    config = repo_spec.config
+    |> Keyword.merge(opts)
+    |> Keyword.merge(
+      dump_prefixes: [tenant.prefix],
+      dump_path: Mix.Ecto.Tenant.dump_path(tenant, opts)
+    )
+
+    display_name = "tenant #{inspect tenant.name}"
+
+    start_time = System.system_time()
 
     case repo.__adapter__().structure_dump(source_repo_priv(repo), config) do
       {:ok, location} ->
@@ -114,25 +118,16 @@ defmodule Mix.Tasks.Ecto.Tenant.Dump do
             System.convert_time_unit(System.system_time() - start_time, :native, :microsecond)
 
           Mix.shell().info(
-            "The structure for #{repo_name} has been dumped to #{location} in #{format_time(elapsed)}"
+            "The structure for #{display_name} has been dumped to #{location} in #{format_time(elapsed)}"
           )
         end
 
       {:error, term} when is_binary(term) ->
-        Mix.raise("The structure for #{repo_name} couldn't be dumped: #{term}")
+        Mix.raise("The structure for #{display_name} couldn't be dumped: #{term}")
 
       {:error, term} ->
-        Mix.raise("The structure for #{repo_name} couldn't be dumped: #{inspect(term)}")
+        Mix.raise("The structure for #{display_name} couldn't be dumped: #{inspect(term)}")
     end
-  end
-
-  defp add_dump_path(config, repo, dyn_repo) when repo == dyn_repo, do: config
-  defp add_dump_path(config, repo, dyn_repo) do
-    path = Path.join(
-      source_repo_priv(repo),
-      "#{dyn_repo}_structure.sql"
-    )
-    Keyword.put(config, :dump_path, path)
   end
 
   defp format_time(microsec) when microsec < 1_000, do: "#{microsec} μs"
