@@ -91,12 +91,27 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
 
       Mix.Ecto.Tenant.start_all_repos(tenants)
 
+      loaded = Stream.filter(tenants, &table_exists?(&1, source))
+      |> MapSet.new()
+
       if not (skip_safety_warnings?() or opts[:force]) do
         if opts[:skip_if_loaded] do
           confirm_load(repo)
         else
-          warn_about_loaded_tenants(repo, tenants, source)
+          case MapSet.size(loaded) do
+            0 -> confirm_load(repo)
+            n -> Mix.shell().yes?("""
+            It looks like structure was already loaded for #{n} tenant(s). Any attempt to load again might fail.
+            Are you sure you want to proceed?
+            """)
+          end
         end
+      end
+
+      tenants = if opts[:skip_if_loaded] do
+        Enum.reject(tenants, & &1 in loaded)
+      else
+        tenants
       end
 
       Task.async_stream(tenants, fn tenant ->
@@ -112,22 +127,6 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
       end, max_concurrency: opts[:concurrency], timeout: :infinity)
       |> Stream.run()
     end)
-  end
-
-  defp warn_about_loaded_tenants(repo, tenants, source) do
-    loaded = Enum.filter(tenants, fn tenant ->
-      table_exists?(tenant, source)
-    end)
-    |> Enum.count()
-
-    if loaded > 0 do
-      Mix.shell().yes?("""
-      It looks like structure was already loaded for #{loaded} tenant(s). Any attempt to load again might fail.
-      Are you sure you want to proceed?
-      """)
-    else
-      confirm_load(repo)
-    end
   end
 
   defp table_exists?(tenant, table) do
