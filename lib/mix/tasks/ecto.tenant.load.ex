@@ -107,7 +107,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
           opts = Keyword.merge(opts,
             dump_path: dump_path
           )
-          load_structure(tenant.repo, opts)
+          load_structure(tenant, opts)
         end
       end, max_concurrency: opts[:concurrency], timeout: :infinity)
       |> Stream.run()
@@ -158,8 +158,9 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
     )
   end
 
-  defp load_structure(repo, opts) do
-    config = Keyword.merge(repo.config(), opts)
+  defp load_structure(tenant, opts) do
+    %{repo: repo, config: config} = Mix.Ecto.Tenant.fetch_repo_spec!(tenant)
+    config = Keyword.merge(config, opts)
     start_time = System.system_time()
 
     case repo.__adapter__().structure_load(source_repo_priv(repo), config) do
