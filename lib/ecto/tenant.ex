@@ -6,6 +6,7 @@ defmodule Ecto.Tenant do
   end
 
   @callback tenant_configs :: [Keyword.t]
+  @callback dynamic_repo_configs :: [Keyword.t]
   @callback set_tenant(name :: String.t) :: {:ok, String.t} | {:error, String.t}
   @callback get_tenant() :: String.t | :undefined
 
@@ -34,6 +35,11 @@ defmodule Ecto.Tenant do
         Enum.find(dynamic_repo_configs(), & &1[:name] == name)
       end
 
+      def set_tenant(nil) do
+        put_dynamic_repo(nil)
+        Process.put(@current_tenant_key, nil)
+        {:ok, nil}
+      end
       def set_tenant(name) do
         case tenant_config(name) do
           nil -> {:error, "Tenant not found"}
