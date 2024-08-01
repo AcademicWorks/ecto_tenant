@@ -91,6 +91,24 @@ defmodule Ecto.Tenant do
         end
       end
 
+      defoverridable [start_link: 1]
+      def start_link(opts) do
+        case opts do
+          [] ->
+            dynamic_repo_configs()
+            |> Enum.map(fn repo ->
+              %{
+                id: {__MODULE__, repo[:name]},
+                start: {__MODULE__, :start_link, [repo]},
+                type: :supervisor
+              }
+            end)
+            |> Supervisor.start_link(strategy: :one_for_one, name: __MODULE__)
+          _ ->
+            Ecto.Repo.Supervisor.start_link(__MODULE__, @otp_app, @adapter, opts)
+        end
+      end
+
     end
   end
 
