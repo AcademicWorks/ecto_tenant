@@ -167,6 +167,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
         f.(tenant.repo)
       end)
       |> Stream.run()
+
+      Mix.Ecto.Tenant.stop_all_repos(tenants)
     end
 
     :ok

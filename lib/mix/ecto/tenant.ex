@@ -199,6 +199,12 @@ defmodule Mix.Ecto.Tenant do
     end)
   end
 
+  def stop_all_repos(tenants) do
+    Stream.map(tenants, & &1.dynamic_repo)
+    |> Enum.uniq()
+    |> Enum.each(fn dyn_repo -> Supervisor.stop(dyn_repo) end)
+  end
+
   def with_repo(repo, tenant, f) do
     dyn_repo = dyn_repo(repo, tenant)
     config = repo.repo_config(dyn_repo)
