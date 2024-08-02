@@ -155,6 +155,11 @@ defmodule Mix.Ecto.Tenant do
     tenant[:repo] || repo
   end
 
+  def start_otp_app(repo) do
+    otp_app = repo.config()[:otp_app]
+    Application.ensure_all_started(otp_app, :temporary)
+  end
+
   def start_repo(spec_or_tenant, opts \\ [])
 
   def start_repo(%Ecto.Tenant.RepoSpec{} = spec, opts) do

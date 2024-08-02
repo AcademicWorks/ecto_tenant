@@ -24,14 +24,9 @@ defmodule Mix.Tasks.Ecto.Tenant.Create do
     |> Enum.each(fn repo ->
       Mix.Ecto.Tenant.all_repo_specs(repo)
       |> Enum.each(fn repo_spec ->
+        Mix.Ecto.Tenant.start_otp_app(repo)
         create_repo(repo_spec, args, opts)
       end)
-
-      # Mix.Ecto.Tenant.all_tenants(repo)
-      # |> Enum.each(fn tenant ->
-      #   Mix.Ecto.Tenant.start_repo(tenant)
-      #   create_tenant(tenant, opts)
-      # end)
     end)
   end
 

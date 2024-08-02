@@ -13,6 +13,43 @@ defmodule Ecto.Tenant do
   defmacro __using__(opts \\ []) do
     quote do
 
+      defmodule Supervisor do
+
+        def child_spec(config \\ []) do
+          repo_module = parent_module()
+          %{
+            id: {__MODULE__, repo_module},
+            start: {__MODULE__, :start_link, [repo_module]},
+            type: :supervisor
+          }
+        end
+
+        def start_link(repo_module) do
+          repo_module.dynamic_repo_configs()
+          |> Enum.map(fn repo ->
+            %{
+              id: {repo_module, repo[:name]},
+              start: {repo_module, :start_link, [repo]},
+              type: :supervisor
+            }
+          end)
+          |> Elixir.Supervisor.start_link(strategy: :one_for_one, name: {:global, {__MODULE__, repo_module}})
+        end
+
+        def stop do
+          Elixir.Supervisor.stop({:global, {__MODULE__, parent_module()}})
+        end
+
+        defp parent_module do
+          to_string(__MODULE__)
+          |> String.split(".")
+          |> Enum.drop(-1)
+          |> Enum.join(".")
+          |> String.to_atom()
+        end
+
+      end
+
       @otp_app unquote(opts[:otp_app])
       @behaviour Ecto.Tenant
       @current_tenant_key String.to_atom("#{inspect __MODULE__}:current")
@@ -89,16 +126,6 @@ defmodule Ecto.Tenant do
             end)
           repo -> repo
         end
-      end
-
-      defoverridable [child_spec: 1]
-      def child_spec(opts) do
-        opts = Keyword.put(opts, :repo_module, __MODULE__)
-        %{
-          id: __MODULE__,
-          start: {Ecto.Tenant.Supervisor, :start_link, [opts]},
-          type: :supervisor
-        }
       end
 
     end

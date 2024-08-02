@@ -145,6 +145,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
       sources = Mix.Ecto.Tenant.migration_sources(paths)
       pool = repo.config()[:pool]
 
+      Mix.Ecto.Tenant.start_otp_app(repo)
+
       tenants = Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
       Mix.Ecto.Tenant.start_all_repos(tenants, pool_size: opts[:concurrency] + 1)
 
