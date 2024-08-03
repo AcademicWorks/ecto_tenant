@@ -5,86 +5,53 @@ defmodule Ecto.Tenant do
     defstruct [:name, :repo, :config]
   end
 
+  @type tenant_name :: String.t
+  @type repo_name :: atom
+
   @callback tenant_configs :: [Keyword.t]
+  @callback tenant_config(tenant_name) :: Keyword.t
   @callback dynamic_repo_configs :: [Keyword.t]
-  @callback set_tenant(name :: String.t) :: {:ok, String.t} | {:error, String.t}
-  @callback get_tenant() :: String.t | :undefined
+  @callback dynamic_repo_config(repo_name) :: Keyword.t
+  @callback set_tenant(tenant_name) :: {:ok, tenant_name} | {:error, String.t}
+  @callback get_tenant() :: tenant_name | :undefined
 
   defmacro __using__(opts \\ []) do
     quote do
 
-      defmodule Supervisor do
-
-        def child_spec(config \\ []) do
-          repo_module = parent_module()
-          %{
-            id: {__MODULE__, repo_module},
-            start: {__MODULE__, :start_link, [repo_module]},
-            type: :supervisor
-          }
-        end
-
-        def start_link(repo_module) do
-          repo_module.dynamic_repo_configs()
-          |> Enum.map(fn repo ->
-            %{
-              id: {repo_module, repo[:name]},
-              start: {repo_module, :start_link, [repo]},
-              type: :supervisor
-            }
-          end)
-          |> Elixir.Supervisor.start_link(strategy: :one_for_one, name: {:global, {__MODULE__, repo_module}})
-        end
-
-        def stop do
-          Elixir.Supervisor.stop({:global, {__MODULE__, parent_module()}})
-        end
-
-        defp parent_module do
-          to_string(__MODULE__)
-          |> String.split(".")
-          |> Enum.drop(-1)
-          |> Enum.join(".")
-          |> String.to_atom()
-        end
-
-      end
+      use Ecto.Tenant.Supervisor, repo: __MODULE__
 
       @otp_app unquote(opts[:otp_app])
       @behaviour Ecto.Tenant
-      @current_tenant_key String.to_atom("#{inspect __MODULE__}:current")
+      @current_tenant_key {Ecto.Tenant, __MODULE__}
 
       def tenant_configs do
         Application.get_env(@otp_app, __MODULE__, [])
         |> Keyword.get(:tenants, [])
       end
 
+      defoverridable(tenant_configs: 0)
+
       def tenant_config(name) do
         Enum.find(tenant_configs(), & &1[:name] == name)
       end
+
+      defoverridable(tenant_config: 1)
 
       def dynamic_repo_configs do
         Application.get_env(@otp_app, __MODULE__, [])
         |> Keyword.get(:dynamic_repos, [])
       end
 
+      defoverridable(dynamic_repo_configs: 0)
+
       def dynamic_repo_config(name) do
         Enum.find(dynamic_repo_configs(), & &1[:name] == name)
       end
 
-      def set_tenant(nil) do
-        put_dynamic_repo(nil)
-        Process.put(@current_tenant_key, nil)
-        {:ok, nil}
-      end
+      defoverridable(dynamic_repo_config: 1)
+
       def set_tenant(name) do
-        case tenant_config(name) do
-          nil -> {:error, "Tenant not found"}
-          tenant ->
-            put_dynamic_repo(tenant[:dynamic_repo])
-            Process.put(@current_tenant_key, tenant[:name])
-            {:ok, name}
-        end
+        Process.put(@current_tenant_key, name)
       end
 
       def get_tenant() do
@@ -93,39 +60,26 @@ defmodule Ecto.Tenant do
             Process.get(:"$callers", [])
             |> Enum.find_value(fn pid ->
               {:dictionary, dictionary} = Process.info(pid, :dictionary)
-              case Keyword.get(dictionary, @current_tenant_key, :undefined) do
-                :undefined -> false
-                tenant -> tenant
-              end
+              Enum.find_value(dictionary, fn
+                {@current_tenant_key, name} -> name
+                _ -> false
+              end)
             end)
+
           tenant -> tenant
         end
       end
 
       def default_options(_) do
-        tenant = get_tenant() |> tenant_config()
-
-        case tenant do
-          nil -> []
-          tenant -> [prefix: tenant[:prefix]]
-        end
+        config = get_tenant() |> tenant_config()
+        [prefix: config[:prefix]]
       end
 
       defoverridable [get_dynamic_repo: 0]
-      def get_dynamic_repo() do
-        case Process.get({__MODULE__, :dynamic_repo}, :undefined) do
-          :undefined ->
-            Process.get(:"$callers", [])
-            |> Enum.find_value(fn pid ->
-              {:dictionary, dictionary} = Process.info(pid, :dictionary)
 
-              case Enum.find(dictionary, fn {key, _} -> key == {__MODULE__, :dynamic_repo} end) do
-                nil -> false
-                {_, repo} -> repo
-              end
-            end)
-          repo -> repo
-        end
+      def get_dynamic_repo() do
+        config = get_tenant() |> tenant_config()
+        config[:dynamic_repo] || __MODULE__
       end
 
     end
