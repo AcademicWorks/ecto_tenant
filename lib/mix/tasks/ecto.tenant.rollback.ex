@@ -143,6 +143,7 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
       Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
       |> Enum.each(fn tenant ->
         Mix.Ecto.Tenant.start_repo(tenant)
+        repo.set_tenant(tenant.name)
 
         opts = Keyword.merge(opts,
           dynamic_repo: tenant.dynamic_repo,

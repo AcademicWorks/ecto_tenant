@@ -153,6 +153,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Migrate do
       Task.async_stream(tenants, fn tenant ->
         create_tenant(tenant)
 
+        repo.set_tenant(tenant.name)
+
         opts = Keyword.merge(opts,
           dynamic_repo: tenant.dynamic_repo,
           prefix: tenant.prefix
