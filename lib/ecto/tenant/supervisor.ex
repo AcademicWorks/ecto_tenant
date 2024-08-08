@@ -21,16 +21,21 @@ defmodule Ecto.Tenant.Supervisor do
           repo_config = @repo.config()
           |> Keyword.drop([:repos, :tenants])
 
-          children = case @repo.dynamic_repo_configs() do
-            [] -> [single_repo_child(repo_config, config_arg)]
-            dyn_repo_configs -> dynamic_repo_children(repo_config, dyn_repo_configs, config_arg)
+          case @repo.dynamic_repo_configs() do
+            [] ->
+              children = [single_repo_child(repo_config, config_arg)]
+              Elixir.Supervisor.start_link(children, strategy: :one_for_one, name: __MODULE__)
+            dyn_repo_configs ->
+              children = dynamic_repo_children(repo_config, dyn_repo_configs, config_arg)
+              Elixir.Supervisor.start_link(children, strategy: :one_for_one, name: @repo)
           end
-
-          Elixir.Supervisor.start_link(children, strategy: :one_for_one, name: @repo)
         end
 
         def stop do
-          Elixir.Supervisor.stop(@repo)
+          case @repo.dynamic_repo_configs() do
+            [] -> Elixir.Supervisor.stop(__MODULE__)
+            dyn_repo_configs -> Elixir.Supervisor.stop(@repo)
+          end
         end
 
         defp single_repo_child(repo_config, config_arg) do
