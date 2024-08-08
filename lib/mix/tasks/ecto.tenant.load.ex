@@ -70,6 +70,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Load do
     |> Enum.each(fn repo ->
       ensure_repo(repo, args)
 
+      Mix.Ecto.Tenant.start_otp_app(repo)
+
       ensure_implements(
         repo.__adapter__(),
         Ecto.Adapter.Structure,
