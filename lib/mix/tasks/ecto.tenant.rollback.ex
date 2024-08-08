@@ -140,6 +140,8 @@ defmodule Mix.Tasks.Ecto.Tenant.Rollback do
       sources = Mix.Ecto.Tenant.migration_sources(paths)
       pool = repo.config()[:pool]
 
+      Mix.Ecto.Tenant.start_otp_app(repo)
+
       Mix.Ecto.Tenant.tenants_from_opts(repo, opts)
       |> Enum.each(fn tenant ->
         Mix.Ecto.Tenant.start_repo(tenant)
