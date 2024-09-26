@@ -59,11 +59,14 @@ defmodule Ecto.Tenant do
           :undefined ->
             Process.get(:"$callers", [])
             |> Enum.find_value(fn pid ->
-              {:dictionary, dictionary} = Process.info(pid, :dictionary)
-              Enum.find_value(dictionary, fn
-                {@current_tenant_key, name} -> name
+              case Process.info(pid, :dictionary) do
+                {:dictionary, dictionary} ->
+                  Enum.find_value(dictionary, fn
+                    {@current_tenant_key, name} -> name
+                    _ -> false
+                  end)
                 _ -> false
-              end)
+              end
             end)
 
           tenant -> tenant
