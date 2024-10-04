@@ -50,6 +50,8 @@ defmodule Ecto.Tenant.Supervisor do
 
             {name, config} = Keyword.pop!(config, :name)
 
+            config = Keyword.put(config, :name, {:global, {@repo, name}})
+
             %{
               id: {__MODULE__, name},
               start: {@repo, :start_link, [config]},
