@@ -47,7 +47,9 @@ defmodule Ecto.Tenant.Supervisor do
               repo_config
               |> Keyword.merge(dyn_repo_config)
               |> Keyword.merge(config_arg)
-              |> Keyword.update!(:name, &{:global, {@repo, &1}})
+
+            {name, config} = Keyword.pop!(config, :name)
+            config = Keyword.put(:name, {:global, {@repo, name}})
 
             %{
               id: {__MODULE__, name},
