@@ -49,7 +49,7 @@ defmodule Ecto.Tenant.Supervisor do
               |> Keyword.merge(config_arg)
 
             {name, config} = Keyword.pop!(config, :name)
-            config = Keyword.put(:name, {:global, {@repo, name}})
+            config = Keyword.put(config, :name, {:global, {@repo, name}})
 
             %{
               id: {__MODULE__, name},
