@@ -47,10 +47,11 @@ defmodule Ecto.Tenant.Supervisor do
               repo_config
               |> Keyword.merge(dyn_repo_config)
               |> Keyword.merge(config_arg)
-              |> Keyword.delete(:name)
+
+            {name, config} = Keyword.pop!(config, :name)
 
             %{
-              id: {__MODULE__, config[:name]},
+              id: {__MODULE__, name},
               start: {@repo, :start_link, [config]},
             }
           end)
