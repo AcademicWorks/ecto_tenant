@@ -26,8 +26,6 @@ defmodule Ecto.Tenant.Supervisor do
             dyn_repo_configs -> dynamic_repo_children(repo_config, dyn_repo_configs, config_arg)
           end
 
-          dbg(children)
-
           Elixir.Supervisor.start_link(children, strategy: :one_for_one, name: __MODULE__)
         end
 
